@@ -51,7 +51,17 @@ const updateCampaignReadStatus = baseDomain => {
 
 export const IFrameHelper = {
   getUrl({ baseUrl, websiteToken }) {
-    return `${baseUrl}/widget?website_token=${websiteToken}`;
+    // PATCH [crm-widget-identity]: carry the CRM-signed contact identity
+    // (window.chatwootSettings.contactIdentity) on the widget frame URL
+    // so the widget page can resolve the EXISTING contact on first paint
+    // instead of building a fresh anonymous contact.
+    return `${baseUrl}/widget?website_token=${websiteToken}${
+      window.chatwootSettings && window.chatwootSettings.contactIdentity
+        ? `&cw_identity=${encodeURIComponent(
+            window.chatwootSettings.contactIdentity
+          )}`
+        : ''
+    }`;
   },
   createFrame: ({ baseUrl, websiteToken }) => {
     if (IFrameHelper.getAppFrame()) {

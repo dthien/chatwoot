@@ -44,9 +44,10 @@ export default {
       );
     },
     showBackButton() {
-      return ['article-viewer', 'messages', 'prechat-form'].includes(
-        this.$route.name
-      );
+      // PATCH [crm-no-back]: never render the back button. With the
+      // [crm-auto-open] patch the home screen is transient, so the back
+      // button has no meaningful destination.
+      return false;
     },
     isOnArticleViewer() {
       return ['article-viewer'].includes(this.$route.name);
