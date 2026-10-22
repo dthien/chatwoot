@@ -8,12 +8,15 @@ class Api::V1::Widget::BaseController < ApplicationController
   private
 
   def conversations
-    if @contact_inbox.hmac_verified?
-      verified_contact_inbox_ids = @contact.contact_inboxes.where(inbox_id: auth_token_params[:inbox_id], hmac_verified: true).map(&:id)
-      @conversations = @contact.conversations.where(contact_inbox_id: verified_contact_inbox_ids)
-    else
-      @conversations = @contact_inbox.conversations.where(inbox_id: auth_token_params[:inbox_id])
-    end
+    # PATCH [crm-widget-unified-thread] rev 2
+    # Both branches list ALL of the contact's conversations in this inbox.
+    # The stock HMAC branch only listed conversations linked to the
+    # session's own hmac-verified contact_inbox rows, which hid
+    # staff/CRM-initiated conversations (their contact_inbox rows are
+    # not hmac-verified). The CRM widget always authenticates via
+    # set_user (hmac_verified=true), so students saw 'create a new
+    # conversation' instead of the existing thread.
+    @conversations = @contact.conversations.where(inbox_id: auth_token_params[:inbox_id])
   end
 
   def conversation

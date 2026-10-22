@@ -30,6 +30,7 @@ class DashboardController < ActionController::Base
   ].freeze
 
   before_action :set_application_pack
+  before_action :crm_gate_sign_in_page, only: [:index] # PATCH [crm-hide-sign-in]
   before_action :set_global_config
   before_action :set_dashboard_scripts
   around_action :switch_locale
@@ -44,6 +45,54 @@ class DashboardController < ActionController::Base
 
   def ensure_html_format
     render json: { error: 'Please use API routes instead of dashboard routes for JSON requests' }, status: :not_acceptable if request.format.json?
+  end
+
+  # PATCH [crm-hide-sign-in]
+  # Gate the sign-in page entry. In this build the sign-in page is the
+  # client-side v3app pack served at /app/login; unauthenticated visits
+  # to / and /app load the dashboard pack, whose JS does a full
+  # navigation to /app/login before the sign-in page renders. Without
+  # admin=true (or the single-use magic link, sso_auth_token), an
+  # unauthenticated GET to the entry gets a plain message page instead
+  # of the sign-in page. The /auth/* paths (password reset, email
+  # confirmation) are deliberately not gated.
+  def crm_gate_sign_in_page
+    return unless request.get?
+    return unless crm_sign_in_page_path?(request.path)
+    return if request.query_string.match?(%r{admin=true|sso_auth_token=})
+    # NOTE: `render html:` HTML-ESCAPES the string in Rails 7.2 (see
+    # _normalize_options), so the raw message page must use `body:` with an
+    # explicit content type.
+    render body: crm_sign_in_gate_html, content_type: 'text/html; charset=utf-8', status: :ok
+  end
+
+  def crm_sign_in_page_path?(path)
+    path == '/login' || path.end_with?('/app/login')
+  end
+
+  def crm_sign_in_gate_html
+    <<~HTML
+      <!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Sign in via CRM</title>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f6f7f9; color: #333; }
+            .card { text-align: center; padding: 24px; }
+            .card h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+            .card p { color: #666; margin: 0; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Sign in via CRM</h1>
+            <p>You need to login using CRM link.</p>
+          </div>
+        </body>
+      </html>
+    HTML
   end
 
   def set_global_config

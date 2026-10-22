@@ -9,7 +9,25 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   def create
     ActiveRecord::Base.transaction do
       process_update_contact
-      @conversation = create_conversation
+      # PATCH [crm-single-thread]
+      # One conversation per student for life: if the identified contact
+      # already has a conversation in this inbox, deliver the pre-chat
+      # submission into it (auto-reopening it if resolved) instead of
+      # creating a second conversation.
+      existing = conversation
+      if existing
+        @conversation = existing
+        @conversation.open! if @conversation.resolved?
+        if permitted_params[:custom_attributes].present?
+          @conversation.update!(
+            custom_attributes: (@conversation.custom_attributes || {}).merge(
+              permitted_params[:custom_attributes]
+            )
+          )
+        end
+      else
+        @conversation = create_conversation
+      end
       conversation.messages.create!(message_params)
       # TODO: Temporary fix for message type cast issue, since message_type is returning as string instead of integer
       conversation.reload

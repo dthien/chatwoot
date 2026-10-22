@@ -5,7 +5,17 @@ class Api::V1::Accounts::ConversationsController < Api::V1::Accounts::BaseContro
   include ConversationCustomAttributesConcern
 
   before_action :conversation, except: [:index, :meta, :search, :create, :filter]
-  before_action :inbox, :contact, :contact_inbox, only: [:create]
+  before_action :inbox, :contact, only: [:create]
+  # PATCH [crm-single-thread-guard]
+  # One conversation per student in the web widget inbox: block the
+  # account-API (dashboard) "New Conversation" when the contact already
+  # has a conversation in this inbox, so the full context stays in one
+  # thread. The widget path is unaffected (first message still creates
+  # the single conversation; replies to a resolved conversation
+  # auto-reopen it). Runs before :contact_inbox so a rejected request
+  # does not create a stray contact_inbox row.
+  before_action :prevent_duplicate_widget_conversation, only: [:create]
+  before_action :contact_inbox, only: [:create]
 
   ATTACHMENT_RESULTS_PER_PAGE = 100
 
@@ -36,6 +46,13 @@ class Api::V1::Accounts::ConversationsController < Api::V1::Accounts::BaseContro
   end
 
   def show; end
+
+  def prevent_duplicate_widget_conversation
+    return if @inbox.blank? || @contact.blank?
+    return unless @inbox.channel_type == 'Channel::WebWidget'
+    return unless @contact.conversations.where(inbox_id: @inbox.id).exists?
+    render json: { error: 'This contact already has a conversation in this inbox. Open the existing conversation and reply there to keep the full context.' }, status: :unprocessable_entity
+  end
 
   def create
     ActiveRecord::Base.transaction do

@@ -21,6 +21,6 @@ module WebsiteTokenHelper
   end
 
   def permitted_params
-    params.permit(:website_token)
+    params.permit(:website_token, :cw_identity) # PATCH [crm-widget-identity]
   end
 end

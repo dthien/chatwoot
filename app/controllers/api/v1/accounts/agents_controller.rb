@@ -1,6 +1,7 @@
 class Api::V1::Accounts::AgentsController < Api::V1::Accounts::BaseController
   before_action :fetch_agent, except: [:create, :index, :bulk_create]
-  before_action :check_authorization
+  before_action :check_authorization, except: [:create, :index, :bulk_create, :login_link] # PATCH [crm-agent-login-link]
+  before_action :check_agent_admin, only: [:login_link]
 
   def index
     @agents = agents
@@ -33,6 +34,32 @@ class Api::V1::Accounts::AgentsController < Api::V1::Accounts::BaseController
     head :ok
   end
 
+  # PATCH [crm-agent-login-link]
+  # Single-use SSO sign-in link ("magic link") for this agent.
+  # The stock AgentBuilder creates API agents unconfirmed with a
+  # temporary password, so stock web sign-in is impossible until the
+  # agent confirms via the stock confirmation email. This endpoint
+  # (admin API tokens only) confirms the agent and mints a token the
+  # stock login page accepts: open
+  #   /app/login?email=<agent email>&sso_auth_token=<token>
+  # and the stock frontend auto-signs-in (SsoAuthenticatable flow).
+  # The token is single-use (invalidated after the first sign-in) and
+  # expires after ttl_seconds (default 300, clamped to 300..86400).
+  # It returns the token only; the caller composes the URL (no
+  # FRONTEND_URL dependency here).
+  def login_link
+    # update_columns: no callbacks, no email, no validation side effects
+    @agent.update_columns(confirmed_at: Time.now.utc) unless @agent.confirmed?
+    ttl = params[:ttl_seconds].to_i.clamp(300, 86_400)
+    token = SecureRandom.hex(32)
+    ::Redis::Alfred.setex(
+      format(::Redis::RedisKeys::USER_SSO_AUTH_TOKEN, user_id: @agent.id, token: token),
+      'normal',
+      ttl
+    )
+    render json: { sso_auth_token: token, expires_in: ttl, email: @agent.email }
+  end
+
   def bulk_create
     emails = params[:emails]
 
@@ -53,6 +80,11 @@ class Api::V1::Accounts::AgentsController < Api::V1::Accounts::BaseController
 
   def fetch_agent
     @agent = agents.find(params[:id])
+  end
+
+  # PATCH [crm-agent-login-link]
+  def check_agent_admin
+    raise Pundit::NotAuthorizedError unless Current.account_user.administrator?
   end
 
   def account_user_attributes

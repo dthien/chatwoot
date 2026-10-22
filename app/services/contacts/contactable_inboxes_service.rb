@@ -27,11 +27,15 @@ class Contacts::ContactableInboxesService
 
   def website_contactable_inbox(inbox)
     latest_contact_inbox = inbox.contact_inboxes.where(contact: @contact).last
-    return unless latest_contact_inbox
-    # FIXME : change this when multiple conversations comes in
-    return if latest_contact_inbox.conversations.present?
+    # PATCH [crm-dashboard-widget-send]
+    # Always offer the web widget inbox: reuse the existing row
+    # source_id when present, else a fresh uuid that the conversation
+    # API turns into a row on send. Staff can start a conversation with
+    # any contact (incl. CRM-created student contacts) and start a new
+    # one even when the student already has messages.
+    source_id = latest_contact_inbox&.source_id || SecureRandom.uuid
 
-    { source_id: latest_contact_inbox.source_id, inbox: inbox }
+    { source_id: source_id, inbox: inbox }
   end
 
   def api_contactable_inbox(inbox)

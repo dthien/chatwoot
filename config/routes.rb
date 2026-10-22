@@ -61,6 +61,8 @@ Rails.application.routes.draw do
           end
           resources :agents, only: [:index, :create, :update, :destroy] do
             post :bulk_create, on: :collection
+            # PATCH [crm-agent-login-link] single-use SSO sign-in link (magic link)
+            post :login_link, on: :member
           end
           namespace :captain do
             resource :preferences, only: [:show, :update]
