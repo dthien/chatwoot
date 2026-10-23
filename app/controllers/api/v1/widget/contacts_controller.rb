@@ -23,6 +23,27 @@ class Api::V1::Widget::ContactsController < Api::V1::Widget::BaseController
     @contact_inbox.update(hmac_verified: true) if should_verify_hmac?
 
     identify_contact(contact)
+
+    # PATCH [crm-widget-live-resubscribe]: identify_contact can rebind
+    # the session contact (the different-identifier branch builds a
+    # fresh contact; an in-place identify merges it into an existing
+    # identifier/email contact, reassigning this contact_inbox row to
+    # the surviving contact). Live conversation events are broadcast to
+    # the CONVERSATION's contact_inbox row pubsub token (see
+    # [crm-widget-conversation-row] in WidgetsController#build_contact),
+    # so the row the API session is bound to must follow the final
+    # contact — otherwise the widget keeps its page-load pubsub token
+    # and live delivery is lost until a manual refresh (new messages
+    # appear only after a reload). Re-resolve the row that owns the
+    # contact's most recently active conversation in this inbox (first
+    # row when the contact has none yet, current row when the contact
+    # has no row in this inbox), and re-mint the widget auth token
+    # from it so the next page load self-heals to the same row (the
+    # [crm-cookie-rebind] behavior). The fresh pubsub_token is
+    # rendered in set_user.json.jbuilder so the client can
+    # resubscribe its RoomChannel live stream (see the matching
+    # resubscribe/refreshConnector client patch).
+    resolve_live_row_after_identify
   end
 
   # TODO : clean up this with proper routes delete contacts/custom_attributes
@@ -41,6 +62,40 @@ class Api::V1::Widget::ContactsController < Api::V1::Widget::BaseController
       discard_invalid_attrs: true
     )
     @contact = contact_identify_action.perform
+  end
+
+  # PATCH [crm-widget-live-resubscribe]: see set_user. Mirrors the row
+  # selection of [crm-widget-conversation-row] in
+  # WidgetsController#build_contact (the page-load path) so the API
+  # session and the page embed stay bound to the same contact_inbox
+  # row — the row whose pubsub token receives live events for the
+  # contact's conversations in this inbox.
+  def resolve_live_row_after_identify
+    return if @contact.blank?
+
+    latest_conversation = @contact.conversations
+                               .where(inbox_id: @web_widget.inbox.id)
+                               .order(last_activity_at: :desc, created_at: :desc, id: :desc)
+                               .first
+    row = latest_conversation&.contact_inbox ||
+          @web_widget.inbox.contact_inboxes.where(contact: @contact).first ||
+          @contact_inbox
+    @contact_inbox = row
+    # The set_user action marked the PRE-identify row hmac_verified
+    # (line: `@contact_inbox.update(hmac_verified: true) if
+    # should_verify_hmac?`), which made the API session a verified
+    # session: the live fanout covered all of the contact's verified
+    # rows and the widget conversation list used
+    # `contact.conversations`. Without marking the row the session is
+    # now bound to, a multi-row contact's widget list narrows to the
+    # bound row's conversations (`contact_inbox.conversations`). Mark
+    # it the same way (idempotent when row is the already-marked
+    # original row; a verified pre-identify session keeps its
+    # pre-patch semantics).
+    @contact_inbox.update(hmac_verified: true) if should_verify_hmac?
+    @widget_auth_token = ::Widget::TokenService.new(
+      payload: { source_id: row.source_id, inbox_id: @web_widget.inbox.id }
+    ).generate_token
   end
 
   def a_different_contact?

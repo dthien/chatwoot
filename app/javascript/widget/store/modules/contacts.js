@@ -1,4 +1,5 @@
 import { sendMessage } from 'widget/helpers/utils';
+import ActionCableConnector from 'widget/helpers/actionCable';
 import ContactsAPI from '../../api/contacts';
 import { SET_USER_ERROR } from '../../constants/errorTypes';
 import { setHeader } from '../../helpers/axios';
@@ -73,10 +74,17 @@ export const actions = {
         custom_attributes,
       };
       const {
-        data: { widget_auth_token: widgetAuthToken },
+        data: { widget_auth_token: widgetAuthToken, pubsub_token: pubsubToken },
       } = await ContactsAPI.setUser(identifier, user);
       updateWidgetAuthToken(widgetAuthToken);
       dispatch('get');
+      // PATCH [crm-widget-live-resubscribe]: after identify the
+      // server rebinds the session to the row that owns the contact's
+      // conversations in this inbox and returns that row's pubsub
+      // token. Resubscribe the RoomChannel stream with it so live
+      // delivery follows the identified contact without a manual
+      // refresh (no-op when the token is blank or unchanged).
+      ActionCableConnector.refreshConnector(pubsubToken);
       if (identifierHash || widgetAuthToken) {
         dispatch('conversation/clearConversations', {}, { root: true });
         dispatch('conversation/fetchOldConversations', {}, { root: true });

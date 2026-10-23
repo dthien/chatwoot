@@ -212,6 +212,56 @@ RSpec.describe '/api/v1/widget/contacts', type: :request do
       end
     end
 
+    # PATCH [crm-widget-live-resubscribe]: an in-place set_user
+    # identifies the (anonymous) session contact, which merges it into
+    # the existing identified contact. The response must carry the
+    # pubsub token of the row that owns the surviving contact's
+    # conversation in this inbox (and re-mint the widget auth token
+    # to that row) so the client can resubscribe its RoomChannel
+    # live stream — otherwise live delivery is lost until a manual
+    # refresh (new messages appear only after a reload).
+    context 'when the in-place identify merges the session contact into an existing identified contact' do
+      let(:params) { { website_token: web_widget.website_token, identifier: '11093' } }
+      let(:correct_identifier_hash) { OpenSSL::HMAC.hexdigest('sha256', web_widget.hmac_token, params[:identifier].to_s) }
+      let(:crm_contact) { create(:contact, account: account, identifier: '11093', email: 'student@test.com') }
+      let!(:crm_conversation) do
+        create(:conversation, account: account, inbox: web_widget.inbox, contact: crm_contact)
+      end
+
+      it 'returns the conversation row pubsub token and rebinds the widget auth token to that row' do
+        patch '/api/v1/widget/contact/set_user',
+              params: params.merge(identifier_hash: correct_identifier_hash, email: 'student@test.com'),
+              headers: { 'X-Auth-Token' => token },
+              as: :json
+
+        body = response.parsed_body
+        expect(response).to have_http_status(:success)
+        expect(body['id']).to eq(crm_contact.id)
+        expect(body['pubsub_token']).to eq(crm_conversation.contact_inbox.reload.pubsub_token)
+
+        decoded = Widget::TokenService.new(token: body['widget_auth_token']).decode_token
+        expect(decoded[:source_id]).to eq(crm_conversation.contact_inbox.source_id)
+        expect(decoded[:inbox_id]).to eq(web_widget.inbox.id)
+
+        # The row the session is bound to must be marked hmac_verified
+        # (the set_user action marks the pre-identify row; without the
+        # same mark on the re-bound row a multi-row contact's widget
+        # conversation list narrows to the bound row's conversations).
+        expect(crm_conversation.contact_inbox.reload.hmac_verified).to be(true)
+      end
+
+      it 'leaves the session contact_inbox row reassigned to the surviving contact (merge semantics preserved)' do
+        patch '/api/v1/widget/contact/set_user',
+              params: params.merge(identifier_hash: correct_identifier_hash, email: 'student@test.com'),
+              headers: { 'X-Auth-Token' => token },
+              as: :json
+
+        expect(response).to have_http_status(:success)
+        expect(Contact.exists?(contact.id)).to be(false)
+        expect(crm_conversation.contact_inbox.contact).to eq(crm_contact)
+      end
+    end
+
     context 'with mandatory hmac' do
       let(:identify_action) { double }
 

@@ -1,5 +1,6 @@
 import { API } from 'widget/helpers/axios';
 import { sendMessage } from 'widget/helpers/utils';
+import ActionCableConnector from 'widget/helpers/actionCable';
 import { actions } from '../../contacts';
 
 const commit = vi.fn();
@@ -8,6 +9,9 @@ const dispatch = vi.fn();
 vi.mock('widget/helpers/axios');
 vi.mock('widget/helpers/utils', () => ({
   sendMessage: vi.fn(),
+}));
+vi.mock('widget/helpers/actionCable', () => ({
+  default: { refreshConnector: vi.fn() },
 }));
 
 describe('#actions', () => {
@@ -64,6 +68,24 @@ describe('#actions', () => {
       expect(sendMessage.mock.calls).toEqual([]);
       expect(commit.mock.calls).toEqual([]);
       expect(dispatch.mock.calls).toEqual([['get']]);
+    });
+
+    it('resubscribes the widget live stream with the set_user pubsub token', async () => {
+      const user = {
+        email: 'thoma@sphadikam.com',
+        name: 'Adu Thoma',
+        avatar_url: '',
+      };
+      vi.spyOn(API, 'patch').mockResolvedValue({
+        data: {
+          widget_auth_token: 'token',
+          pubsub_token: 'new-pubsub-token',
+        },
+      });
+      await actions.setUser({ commit, dispatch }, { identifier: 1, user });
+      expect(ActionCableConnector.refreshConnector).toHaveBeenCalledWith(
+        'new-pubsub-token'
+      );
     });
   });
 

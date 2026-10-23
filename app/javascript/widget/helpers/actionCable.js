@@ -16,8 +16,29 @@ const isMessageInActiveConversation = (getters, message) => {
 const WIDGET_PRESENCE_INTERVAL = 60000;
 
 class ActionCableConnector extends BaseActionCableConnector {
+  // PATCH [crm-widget-live-resubscribe]: the live (page-mounted)
+  // widget connector instance, so the set_user store action / the
+  // contact.merged event can resubscribe the RoomChannel stream
+  // without a module-level singleton.
+  static current = null;
+
+  // PATCH [crm-widget-live-resubscribe]: resubscribe the widget's
+  // RoomChannel stream to a new contact_inbox pubsub token. The
+  // set_user response carries it (the effective path). The
+  // contact.merged event does NOT today: the server broadcasts it to
+  // the account channel with `contact.push_event_data` (no
+  // pubsub_token), so onContactMerge below stays inert unless that
+  // payload is ever extended. No-op without a live connector or for
+  // a blank/unchanged token.
+  static refreshConnector = pubsubToken => {
+    if (ActionCableConnector.current) {
+      ActionCableConnector.current.resubscribe(pubsubToken);
+    }
+  };
+
   constructor(app, pubsubToken) {
     super(app, pubsubToken, '', WIDGET_PRESENCE_INTERVAL);
+    ActionCableConnector.current = this;
     this.events = {
       'message.created': this.onMessageCreated,
       'message.updated': this.onMessageUpdated,
@@ -99,6 +120,10 @@ class ActionCableConnector extends BaseActionCableConnector {
     this.app.$store.dispatch('agent/updatePresence', data.users);
   };
 
+  // Stock handler (kept for forward compatibility): the
+  // contact.merged broadcast payload (contact.push_event_data, sent
+  // to the account channel) carries no pubsub_token, so this never
+  // fires today — only the set_user response path resubscribes.
   // eslint-disable-next-line class-methods-use-this
   onContactMerge = data => {
     const { pubsub_token: pubsubToken } = data;
