@@ -114,7 +114,24 @@ class Messages::MessageBuilder
   end
 
   def sender
-    message_type == 'outgoing' ? (message_sender || @user) : @conversation.contact
+    message_type == 'outgoing' ? (message_sender || sender_from_request || @user) : @conversation.contact
+  end
+
+  # PATCH [crm-message-sender]
+  # The "account" token of this deployment is a user token of the
+  # account owner, so @user is a User for every token kind and the
+  # stock fallback attributes CRM sends to the admin. When the
+  # request carries sender_id, resolve it to an agent of THIS
+  # account and send as that agent instead. A missing / non-member
+  # / unknown id resolves to nil and degrades to the stock behavior,
+  # so the message still goes out. An integration holding a token of
+  # one same-account agent can label its messages as another
+  # same-account agent (attribution only; conversation and content
+  # are unaffected).
+  def sender_from_request
+    return if @params[:sender_id].blank?
+
+    @account.users.find_by(id: @params[:sender_id])
   end
 
   def external_created_at
