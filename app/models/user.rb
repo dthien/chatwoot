@@ -147,12 +147,35 @@ class User < ApplicationRecord
     {
       id: id,
       name: name,
-      available_name: available_name,
-      avatar_url: avatar_url,
+      available_name: widget_agent_display_name, # PATCH [crm-agent-widget-branding]
+      avatar_url: widget_agent_avatar_url, # PATCH [crm-agent-widget-branding]
       type: 'user',
       availability_status: availability_status,
       thumbnail: avatar_url
     }
+  end
+
+  # PATCH [crm-agent-widget-branding]
+  # Widget (student side) branding: the widget renders agent names as
+  # `available_name || name` (AgentMessage.vue, UnreadMessage.vue) and the
+  # agent avatar from `sender.avatar_url` (AgentMessage.vue,
+  # UnreadMessage.vue, GroupedAvatars.vue). When the env vars are set,
+  # every widget-side payload (live ActionCable events via
+  # Message#push_event_data / typing events, plus the shared widget
+  # message/agent payload shape) is forced to the configured name and
+  # avatar, overriding any per-agent "Display name" or agent photo (which
+  # staff can change in their own profile). Dashboard surfaces read the
+  # real `name`, `thumbnail` or the profile API and keep showing the real
+  # identity, so `thumbnail`, the stock `available_name` method and
+  # AgentBot#push_event_data are deliberately untouched. Unset/empty env
+  # vars => exactly stock behavior.
+  def widget_agent_display_name
+    ENV['CHATWOOT_AGENT_WIDGET_NAME'].presence || available_name
+  end
+
+  # PATCH [crm-agent-widget-branding]
+  def widget_agent_avatar_url
+    ENV['CHATWOOT_AGENT_WIDGET_AVATAR_URL'].presence || avatar_url
   end
 
   def webhook_data
