@@ -20,7 +20,16 @@ class Api::V1::Widget::ContactsController < Api::V1::Widget::BaseController
       contact = @contact
     end
 
-    @contact_inbox.update(hmac_verified: true) if should_verify_hmac?
+    # PATCH [crm-widget-verified-session]: the widget is only reachable
+    # for authenticated CRM students (the widget renders exclusively
+    # inside the CRM for logged-in students), so the CRM login IS the
+    # identity verification. The stock hmac_verified path can never
+    # fire here: the identifier_hash is an HMAC of the identifier with
+    # the website's hmac_token, which exists only on the Chatwoot
+    # server and is never exposed to the client. Mark the bound row
+    # verified unconditionally. Stock behavior when a hash IS provided
+    # is untouched (validate_hmac still rejects an invalid hash).
+    @contact_inbox.update(hmac_verified: true) # PATCH [crm-widget-verified-session]
 
     identify_contact(contact)
 
@@ -92,7 +101,8 @@ class Api::V1::Widget::ContactsController < Api::V1::Widget::BaseController
     # it the same way (idempotent when row is the already-marked
     # original row; a verified pre-identify session keeps its
     # pre-patch semantics).
-    @contact_inbox.update(hmac_verified: true) if should_verify_hmac?
+    # PATCH [crm-widget-verified-session]: unconditional (see set_user).
+    @contact_inbox.update(hmac_verified: true)
     @widget_auth_token = ::Widget::TokenService.new(
       payload: { source_id: row.source_id, inbox_id: @web_widget.inbox.id }
     ).generate_token
